@@ -102,12 +102,11 @@ class GraphTemporalNetwork(nn.Module):
 # TRAINER ##########################################################################
 
 class Trainer:
-    def __init__(self, model, train_dataset, test_dataset, config, tokenizer):
+    def __init__(self, model, train_dataset, test_dataset, config):
         self.model = model
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.config = config
-        self.tokenizer = tokenizer
 
         self.device = "cpu"
         if torch.cuda.is_available():
@@ -126,15 +125,11 @@ class Trainer:
             lr = self.config.lr,
             betas = self.config.betas
         )
-#         lrscheduler = CosineAnnealingLR(optimizer, config.num_batch*config.max_epochs)
-#         lrscheduler = CosineAnnealingWarmRestarts(optimizer, config.num_batch * 3, T_mult = 2, eta_min=0)
         lrscheduler = OneCycleLR(
             optimizer,
             max_lr = config.lr,
             total_steps = config.num_batch*config.max_epochs
         )
-
-#         lrscheduler = MultiStepLR(optimizer, [25, 75, 175], gamma = 0.5)
         
         with SummaryWriter(log_dir=config.tb_path, flush_secs=20) as tb:
             
@@ -182,9 +177,6 @@ class Trainer:
                         out.loss.backward()
                         torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
                         optimizer.step()
-                        
-                        # when using CosineAnnealing
-                        # lrscheduler.step(epoch + it / len(data))
                         lrscheduler.step()
                         _gs += 1
 

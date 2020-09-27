@@ -50,15 +50,25 @@ class WeatherModelingDataset(Dataset):
         return len(self.data)
     
   
-    def __getitem__(self, idx, **kwargs):
-        # print("\n\n\n\n")
-        sample = self.data[idx]
+    def __getitem__(self, index):
+        s = self.data[index]
 
-        # parse to graph then
+        # parsing 
 
-        # huggingface transformers should be able to handle the attention mask by itself
-        return {"input_ids": torch.from_numpy(np.asarray(ids))}
+        # generate the tensors
 
+        # return a dict object
+
+        return {
+            "input": [], # [T, N, F]
+            "edge_matrix": torch.randn(N, N),
+            "locations", # [T, N, F]
+
+            "month_ids", # [T,]
+            "day_ids", # [T,]
+            "hour_ids", # [T,]
+        }
+       
 
 class DatasetConfig:
     path = None
