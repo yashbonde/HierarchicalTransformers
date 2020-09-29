@@ -1,6 +1,7 @@
 """single script to prepare the dataset
 28.09.2020 - @yashbonde"""
 
+import re
 import os
 import logging
 import requests
@@ -88,8 +89,9 @@ if __name__ == "__main__":
                 print("Skipping")
                 continue
             subprocess.run(["wget", u, ""])        
-        subprocess.run(["mv", "*.zip", args.folder + "/"])
+        subprocess.run(["mv", "*.zip", args.folder])
 
+    if args.x:
         for f in glob(args.folder + "/*.zip"):
             subprocess.run(["unzip", f, "-d", args.folder])
 
@@ -99,7 +101,13 @@ if __name__ == "__main__":
             # go over each file
             print("Opening:", f)
 
-            _, reg, wsname, wsid, city, start_date, _, end_date = f.replace(".CSV", "").split("_")
+            # try:
+            #     _, reg, wsname, wsid, city, start_date, _, end_date = f.replace(".CSV", "").split("_")
+            # except:
+            #     _, reg, wsname, wsid, _, city, start_date, _, end_date = f.replace(".CSV", "").split("_")
+
+            start_date, end_date = re.findall(r"\d+-\d+-\d{4}", f)
+            wsid = re.findall(r"[A-Z]\d{3}", f)[0]
 
             start_date = date(*list(map(int, start_date.split("-")))[::-1])
             end_date = date(*list(map(int, end_date.split("-")))[::-1])
