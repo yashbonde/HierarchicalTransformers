@@ -1,6 +1,36 @@
-# all shit realted to data --> parsing --> cleaning --> generation --> storage
-# takes its own arguments
+"""
+How to do data?
+===============
+The entire weather dataset cannot be loaded completely in memory
+so this has to be either
+A. iterative datatset where we yield samples
+B. we can store samples in a seperate file and load when required
+C. read a particular line from file lazily (using linecache)
+D. use a dedicated system like hdf5
+
+Option D sounds the simples as it is already is used to save the scientific
+data like earth observation, etc.
+
+Going by option D requires these tasks
+#1 learning what the hell is HDF5
+#2 creating a script for unified datasets and
+
+Part #1
+-------
+So HDF5 is short for heirarchical data format (v)5. HDF5 uses a directory
+style method to store datasets and 
+
+/ # root
+/headers # first group
+
+
+Part #2
+-------
+Next step is simple, need to crate two files each 
+
+
 # 15.09.2020 - @yashbonde
+"""
 
 import re
 import json
@@ -11,28 +41,7 @@ import sentencepiece as spm
 import torch
 from torch.utils.data import Dataset
 
-from vocab import Mappings, Fields
-
-FC = Fields()
-MC = Mappings()
-
 # ---- functions ---- #
-def create_sp_tokenizer(fpath, model, vocab_size, normalization_rule_name="nfkc_cf", split_by_whitespace=False):
-    split_by_whitespace = "true" if split_by_whitespace else "false"
-    spm.SentencePieceTrainer.train(f'''--input={fpath} --model_prefix={model} --vocab_size={vocab_size}\
-        --pad_id=0 --unk_id=1 --bos_id=2 --eos_id=3\
-        --user_defined_symbols={",".join(FC.sp_tokens)}\
-        --pad_piece={FC.PAD}\
-        --unk_piece={FC.UNK}\
-        --bos_piece={FC.BOS}\
-        --eos_piece={FC.EOS}\
-        --normalization_rule_name={normalization_rule_name}\
-        --split_by_whitespace={split_by_whitespace}''')
-    
-    
-def load_tokenizer(model):
-    return spm.SentencePieceProcessor(f"{model}.model")
-
 
 # ---- main class ---- #
 class WeatherModelingDataset(Dataset):
@@ -51,7 +60,24 @@ class WeatherModelingDataset(Dataset):
     
   
     def __getitem__(self, index):
-        s = self.data[index]
+        """
+        It is getting too complicated to filter and create datasets, so I have started
+        with directly creating the dataset object. We need to return the following objects
+        with these shapes (T - timesteps, N - number of nodes):
+            # this is the real challenge
+            input: [T, N, 16]
+            locations: [T, N, 3]
+            node_mask: [T, N, N] # this tells what are the nodes that are active at each point of time.
+
+            # these values are like the standard stuff from LM
+            month_ids: [T,]
+            day_ids: [T,]
+            hour_ids: [T,]
+
+            # this is constant
+            edge_matrix: [N, N]
+        """
+        # get samples
 
         # parsing 
 
@@ -61,12 +87,16 @@ class WeatherModelingDataset(Dataset):
 
         return {
             "input": [], # [T, N, F]
-            "edge_matrix": torch.randn(N, N),
             "locations", # [T, N, F]
+
+            "node_mask": # [T, N, N]
+
+            "edge_matrix": , # [N, N]
 
             "month_ids", # [T,]
             "day_ids", # [T,]
             "hour_ids", # [T,]
+            
         }
        
 
