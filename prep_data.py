@@ -1,5 +1,8 @@
 """single script to prepare the dataset
-28.09.2020 - @yashbonde"""
+28.09.2020 - @yashbonde
+
+Note: there are things that might seem super unintuitive particularly in
+args.c # construct. That is """
 
 import re
 import os
@@ -21,6 +24,8 @@ def daterange(start_date, end_date):
         yield start_date + timedelta(n)
 
 logger = logging.getLogger(f"prepare_data_{str(datetime.now())}.log")
+
+print("‼️")
 
 COLUMNS = [
     ("total_precipitation", "mm"),
