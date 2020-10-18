@@ -118,11 +118,16 @@ class WeatherDataset(Dataset):
         return seq
 
     def get_index(self, index: str):
+        # observational data
         idata = self.hdf[index]
         mask = idata["mask"][...]
         data = idata["data"][...].reshape(len(mask), 17)
         data = self.norm_sequence(data)
-        return data, mask
+
+        # time data
+        time = self.hdf["datetime"][int(index)]
+
+        return data, mask, time
 
     def __getitem__(self, index):
         """
@@ -146,25 +151,35 @@ class WeatherDataset(Dataset):
         local_idx = self.this_idx[index]
         df = np.ndarray((config.maxlen, 611, 17), dtype=np.float32)
         masks = np.ndarray((config.maxlen, 611))
+        months = np.ndarray((config.maxlen,))
+        days = np.ndarray((config.maxlen,))
+        hours = np.ndarray((config.maxlen,))
         for i in range(config.maxlen):
-            data, mask = self.get_index(str(local_idx + i))
+            data, mask, (mon, day, hrs) = self.get_index(str(local_idx + i))
             df[i, ...] = data
             masks[i, ...] = mask
+            months[i] = mon
+            days[i] = day
+            hours[i] = hrs
         dflist = df.tolist()
         msklist = masks.tolist()
+        months_list = months.tolist()
+        days_list = days.tolist()
+        hours_list = hours.tolist()
 
+        # save mem?
         del df
         del masks
+        del months, days, hours
 
-        {
+        return {
             "input": torch.from_numpy(np.asarray(dflist).astype(np.float32)),  # [T, N, F]
             "locations": self.loc_mat,  # [T, N, F]
             "node_mask": torch.from_numpy(np.asarray(msklist)).long(), # [T, N, N]
             "edge_matrix": self.edge_mat, # [N, N]
-            "month_ids",  # [T,]
-            "day_ids",  # [T,]
-            "hour_ids",  # [T,]
-
+            "month_ids": torch.from_numpy(np.asarray(months_list)).long(),  # [T,]
+            "day_ids": torch.from_numpy(np.asarray(days_list)).long(),  # [T,]
+            "hour_ids": torch.from_numpy(np.asarray(hours_list)).long(),  # [T,]
         }
 
 class DatasetConfig:
