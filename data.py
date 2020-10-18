@@ -80,8 +80,7 @@ class WeatherDataset(Dataset):
         long = [wsmeta_ordered[i] for i in range(1, len(wsmeta_ordered), 3)]
 
         # define location matrix
-        loc_mat = 
-
+        self.loc_mat = torch.from_numpy(wsmeta_ordered.reshape[-1, 3].astype(np.float32))
 
         # define edge matrix
         edge_mat = np.ones((len(lats), len(lats)), dtype = np.float32)
@@ -159,7 +158,7 @@ class WeatherDataset(Dataset):
 
         {
             "input": torch.from_numpy(np.asarray(dflist).astype(np.float32)),  # [T, N, F]
-            "locations",  # [T, N, F]
+            "locations": self.loc_mat,  # [T, N, F]
             "node_mask": torch.from_numpy(np.asarray(msklist)).long(), # [T, N, N]
             "edge_matrix": self.edge_mat, # [N, N]
             "month_ids",  # [T,]
