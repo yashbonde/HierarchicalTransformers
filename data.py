@@ -6,28 +6,40 @@ so this has to be either
 A. iterative datatset where we yield samples [no]
 B. we can store samples in a seperate file and load when required [no]
 C. read a particular line from file lazily (using linecache) [no]
-D. use a dedicated system like hdf5 [too time consuming to build]
+D. use a dedicated system like hdf5
 
-Option D sounds the simples as it is already is used to save the scientific
-data like earth observation, etc.
-
-Going by option D requires these tasks
-#1 learning what the hell is HDF5
-#2 creating a script for unified datasets and
+Option D sounds the simplest as it is already is used to save the scientific
+data like earth observation, etc. It took very long time to built the HDF5
+takes 7:30 hours to have the final dump.
 
 Part #1
 -------
 So HDF5 is short for heirarchical data format (v)5. HDF5 uses a directory
-style method to store datasets and 
+style method to store datasets, consider this example
 
-/ # root
-/headers # first group
+/wsmeta_ordered
+/datetime
+1/data
+1/meta
+2/data
+2/meta
 
+Here 1,2... are groups and data, meta, wsmeta_ordered, datetime are
+data. This is also the structure used in this HDF5 dump where each integer
+group is the index from unified index.
 
 Part #2
 -------
-Next step is simple, need to crate two files each 
+This step started as creating a script but now I have added a notebook
+with step by step blocks on how to get the final data that you want.
+goto: _notebooks/prepare_hdf5.ipynb
 
+Part #3
+-------
+Data in the HDF5 dump is not normalised and thus has to be normalised at
+each call for fetching, this is because I had not come up with a strategy on
+how to normalise this at the time of dumping. Each sequence is normalised
+using `norm_sequence` function.
 
 # 15.09.2020 - @yashbonde
 """
