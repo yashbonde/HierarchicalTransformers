@@ -44,13 +44,10 @@ using `norm_sequence` function.
 # 15.09.2020 - @yashbonde
 """
 
-import re
-import json
 import h5py
 import math
 import numpy as np
-import pandas as pd
-import sentencepiece as spm
+from tabulate import tabulate
 
 import torch
 from torch.utils.data import Dataset
@@ -81,18 +78,26 @@ class WeatherDataset(Dataset):
 
         self.set_location_and_edge_matrix()
         self._len_hdf = len(self.this_idx)
+        self.mode = mode
+        
+        self.num_wsid = len(self.edge_mat)
 
     def __len__(self):
         return self._len_hdf - self.config.maxlen
 
+    def __repr__(self):
+        return (f"<WeatherDataset {len(self)} samples in" 
+        f" '{self.mode}' mode, {self.num_wsid} nodes>")
+
+
     def set_location_and_edge_matrix(self):
         # get lat longs
-        wsmeta_ordered = self.hdf["wsmeta_ordered"][...]
+        wsmeta_ordered = self.hdf["wsid_meta"][...]
         lats = [wsmeta_ordered[i] for i in range(0, len(wsmeta_ordered), 3)]
         long = [wsmeta_ordered[i] for i in range(1, len(wsmeta_ordered), 3)]
 
         # define location matrix
-        self.loc_mat = torch.from_numpy(wsmeta_ordered.reshape[-1, 3].astype(np.float32))
+        self.loc_mat = torch.from_numpy(wsmeta_ordered.reshape(-1, 3).astype(np.float32))
 
         # define edge matrix
         edge_mat = np.ones((len(lats), len(lats)), dtype = np.float32)
@@ -126,7 +131,6 @@ class WeatherDataset(Dataset):
         seq[..., 14] /= 1
         seq[..., 15] /= 1
         seq[..., 16] /= 1
-        seq[..., 17] /= 1
         return seq
 
     def get_index(self, index: str):
@@ -161,8 +165,8 @@ class WeatherDataset(Dataset):
         """
         config = self.config
         local_idx = self.this_idx[index]
-        df = np.ndarray((config.maxlen, 611, 17), dtype=np.float32)
-        masks = np.ndarray((config.maxlen, 611))
+        df = np.ndarray((config.maxlen, self.num_wsid, 17), dtype=np.float32)
+        masks = np.ndarray((config.maxlen, self.num_wsid))
         months = np.ndarray((config.maxlen,))
         days = np.ndarray((config.maxlen,))
         hours = np.ndarray((config.maxlen,))
@@ -201,17 +205,45 @@ class DatasetConfig:
     wsid_meta = None
 
     def __init__(self, **kwargs):
-        self.attrs = []
+        self.attrs = [
+            "maxlen",
+            "hdf_fpath",
+            "index",
+            "wsid_meta"
+        ]
         for k,v in kwargs.items():
             setattr(self, k, v)
             self.attrs.append(k)
 
     def __repr__(self):
         return "---- DATASET CONFIGURATION ----\n" + \
-            "\n".join([f"{k}\t{getattr(self, k)}" for k in list(set([
-                "maxlen",
-                "hdf_fpath",
-                "index",
-                "wsid_meta",
-            ] + self.attrs))
-        ]) + "\n"
+             tabulate(
+                 [(k,getattr(self, k)) for k in list(set(self.attrs))],
+                 headers=["key", "value"],
+                 tablefmt="psql"
+            )
+
+# if __name__ == "__main__":
+#     config = DatasetConfig(
+#         maxlen = 10,
+#         hdf_fpath="/Users/yashbonde/Desktop/AI/vv2/_notebooks/weatherGiga2.hdf5",
+#         index="/Users/yashbonde/Desktop/AI/vv2/_notebooks/test_idx.txt",
+#         wsid_meta="/Users/yashbonde/Desktop/AI/vv2/_notebooks/wsid_meta.json"
+#     )
+
+#     print(config)
+
+#     wd = WeatherDataset(config)
+#     print(wd)
+#     print("EdgeMatrix:", wd.edge_mat.shape)
+#     print("LocationMatrix:", wd.loc_mat.shape)
+#     for i in range(5):
+#         print(f'----- INDEX {i} -----')
+#         print({k:(v.size(), v.dtype) for k,v in wd[i].items()})
+
+#     from torch.utils.data import DataLoader
+
+#     print()
+#     for x in DataLoader(wd, batch_size = 32, shuffle = True):
+#         print({k: (v.size(), v.dtype) for k, v in x.items()})
+#         break
