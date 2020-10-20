@@ -202,14 +202,12 @@ class DatasetConfig:
     maxlen = None # what is the maximum length of sequence to return
     hdf_fpath = None
     index = None
-    wsid_meta = None
 
     def __init__(self, **kwargs):
         self.attrs = [
             "maxlen",
             "hdf_fpath",
             "index",
-            "wsid_meta"
         ]
         for k,v in kwargs.items():
             setattr(self, k, v)
@@ -228,7 +226,6 @@ class DatasetConfig:
 #         maxlen = 10,
 #         hdf_fpath="/Users/yashbonde/Desktop/AI/vv2/_notebooks/weatherGiga2.hdf5",
 #         index="/Users/yashbonde/Desktop/AI/vv2/_notebooks/test_idx.txt",
-#         wsid_meta="/Users/yashbonde/Desktop/AI/vv2/_notebooks/wsid_meta.json"
 #     )
 
 #     print(config)
