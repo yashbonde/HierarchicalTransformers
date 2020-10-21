@@ -221,6 +221,83 @@ class DatasetConfig:
                  tablefmt="psql"
             )
 
+
+# ---- For Demo ---- #
+class DummyDataset(Dataset):
+    def __init__(self, config):
+        self.config = config
+        self.input_sequences = np.array([
+            np.sin(np.linspace(0, np.pi * (i + 1), config.n_samples)).tolist()
+            for i in range(config.n_features)
+        ])
+        self.node_mask = np.ones(shape = (config.n_samples, config.n_nodes))
+        for i in range(self.node_mask.shape[0]):
+            if np.random.random() > 0.75:
+                self.node_mask[i, np.random.randint(low = 0, high = self.node_mask.shape[1])] = 0
+        
+        self.loc_mat = torch.from_numpy(np.random.randn(config.n_nodes, 3).astype(np.float32))
+        self.edge_mat = torch.from_numpy(np.random.randn(config.n_nodes, config.n_nodes).astype(np.float32))
+
+        # create ordered time
+        hrs, day, mon = [], [], []
+        hr_cntr, day_cntr, mon_cntr = 0, 0, 0
+        for i in range(config.n_samples):
+            hrs.append(hr_cntr); day.append(day_cntr); mon.append(mon_cntr)
+            hr_cntr += 1
+            if hr_cntr == 24: # every 24 hours a day passes in Africa
+                hr_cntr = 0
+                day_cntr += 1
+            
+            if day_cntr == 32: # every 31 days a month passes in Africa
+                day_cntr = 0
+                mon_cntr += 1
+
+            if mon_cntr == 13: # every 12 months a year passes in Africa
+                mon_cntr = 0
+        
+        # dammit, I really wanted to make original meme
+        self.hrs = np.asarray(hrs).astype(np.int32)
+        self.day = np.asarray(day).astype(np.int32)
+        self.mon = np.asarray(mon).astype(np.int32)
+
+    def __len__(self):
+        return self.input_sequences.shape[0] - self.config.maxlen
+
+    def __getitem__(self, index):
+        config = self.config
+        curr_seq = self.input_sequences[index: index+config.maxlen].tolist()
+        msklist = self.node_mask[index: index+config.maxlen].tolist()
+        months_list = self.mon[index: index+config.maxlen].tolist()
+        days_list = self.day[index: index+config.maxlen].tolist()
+        hours_list = self.hrs[index: index+config.maxlen].tolist()
+
+        return {
+            "input": torch.from_numpy(np.asarray(curr_seq).astype(np.float32)),  # [T, N, F]
+            "node_mask": torch.from_numpy(np.asarray(msklist)).long(), # [T, N, N]
+            
+            "month_ids": torch.from_numpy(np.asarray(months_list)).long(),  # [T,]
+            "day_ids": torch.from_numpy(np.asarray(days_list)).long(),  # [T,]
+            "hour_ids": torch.from_numpy(np.asarray(hours_list)).long(),  # [T,]
+            
+            "locations": self.loc_mat,  # [N, F]
+            "edge_matrix": self.edge_mat, # [N, N]
+        }
+
+
+class DummyDatasetConfig():
+    def __init__(
+        self,
+        n_samples = 100,
+        n_nodes = 30,
+        n_features = 5,
+        maxlen = 10
+    ):
+        self.n_samples = n_samples
+        self.n_nodes = n_nodes
+        self.n_features = n_features
+        self.maxlen = maxlen
+
+# # --- Actual --- #
 # if __name__ == "__main__":
 #     config = DatasetConfig(
 #         maxlen = 10,
@@ -244,3 +321,10 @@ class DatasetConfig:
 #     for x in DataLoader(wd, batch_size = 32, shuffle = True):
 #         print({k: (v.size(), v.dtype) for k, v in x.items()})
 #         break
+
+# # ----- Demo ----- #
+# if __name__ == "__main__":
+#     config = DummyDatasetConfig()
+#     wd = DummyDataset(config)
+#     # print(wd.mon, wd.day, wd.hrs)
+#     print(wd[0])
