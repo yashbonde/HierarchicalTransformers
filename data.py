@@ -225,15 +225,30 @@ class DatasetConfig:
 # ---- For Demo ---- #
 class DummyDataset(Dataset):
     def __init__(self, config):
+        assert config.maxlen % config.seqlen == 0, \
+            f"cannot break {config.maxlen} long sequence into equal {config.seqlen} pieces"
         self.config = config
+
         self.input_sequences = np.array([
             np.sin(np.linspace(0, np.pi * (i + 1), config.n_samples)).tolist()
-            for i in range(config.n_features)
-        ])
+            for i in range(config.n_features * config.n_nodes)
+        ]).T.reshape(-1, config.n_nodes, config.n_features) # [n_samples, N, F]
+
+        # print("--->", self.input_sequences.shape)
+
         self.node_mask = np.ones(shape = (config.n_samples, config.n_nodes))
         for i in range(self.node_mask.shape[0]):
             if np.random.random() > 0.75:
-                self.node_mask[i, np.random.randint(low = 0, high = self.node_mask.shape[1])] = 0
+                mask_node = np.random.randint(
+                    low=0,
+                    high=self.node_mask.shape[1],
+                    size=(
+                        np.random.randint(
+                            low = 0, high = 4
+                        )
+                    )
+                )
+                self.node_mask[i, mask_node] = 0
         
         self.loc_mat = torch.from_numpy(np.random.randn(config.n_nodes, 3).astype(np.float32))
         self.edge_mat = torch.from_numpy(np.random.randn(config.n_nodes, config.n_nodes).astype(np.float32))
@@ -242,15 +257,18 @@ class DummyDataset(Dataset):
         hrs, day, mon = [], [], []
         hr_cntr, day_cntr, mon_cntr = 0, 0, 0
         for i in range(config.n_samples):
+            # print(hr_cntr, day_cntr, mon_cntr)
             hrs.append(hr_cntr); day.append(day_cntr); mon.append(mon_cntr)
             hr_cntr += 1
             if hr_cntr == 24: # every 24 hours a day passes in Africa
                 hr_cntr = 0
                 day_cntr += 1
-            
-            if day_cntr == 32: # every 31 days a month passes in Africa
-                day_cntr = 0
+
+            if day_cntr and day_cntr % 16 == 0 and hr_cntr == 0:  # every 16 days a month passes in Africa
                 mon_cntr += 1
+            
+            if day_cntr == 32:
+                day_cntr = 0
 
             if mon_cntr == 13: # every 12 months a year passes in Africa
                 mon_cntr = 0
@@ -258,29 +276,50 @@ class DummyDataset(Dataset):
         # dammit, I really wanted to make original meme
         self.hrs = np.asarray(hrs).astype(np.int32)
         self.day = np.asarray(day).astype(np.int32)
+        self.day[self.day == 31] = 30
         self.mon = np.asarray(mon).astype(np.int32)
 
     def __len__(self):
         return self.input_sequences.shape[0] - self.config.maxlen
 
+    # since these two things are constants that do not change ever, we
+    # can pre-fetch them so useless memory is not utilised copying shit
+    def get_edge_matrix(self):
+        return self.edge_mat
+
+    def get_location_matrix(self):
+        return self.loc_mat
+
+    # main function to get the data
     def __getitem__(self, index):
         config = self.config
-        curr_seq = self.input_sequences[index: index+config.maxlen].tolist()
+
+        # get all the data points first
+        # print(index, index + config.maxlen)
+        curr_seq = self.input_sequences[index: index+config.maxlen] # done to get shapes
         msklist = self.node_mask[index: index+config.maxlen].tolist()
         months_list = self.mon[index: index+config.maxlen].tolist()
         days_list = self.day[index: index+config.maxlen].tolist()
         hours_list = self.hrs[index: index+config.maxlen].tolist()
 
+        # now convert datapoints to sequence of data points
+        T_S = curr_seq.shape[0] // config.seqlen
+        S = config.seqlen
+        N, F = curr_seq.shape[1:]
+
+        curr_seq = curr_seq.tolist() # finally convert to list aye
+
         return {
-            "input": torch.from_numpy(np.asarray(curr_seq).astype(np.float32)),  # [T, N, F]
-            "node_mask": torch.from_numpy(np.asarray(msklist)).long(), # [T, N, N]
+            "input": torch.from_numpy(
+                np.asarray(curr_seq).astype(np.float32).reshape(T_S, S, N, F)
+            ),  # [T // S, S, N, F]
+            "node_mask": torch.from_numpy(
+                np.asarray(msklist).reshape(T_S, S, N)
+            ).long(), # [T // S, S, N]
             
-            "month_ids": torch.from_numpy(np.asarray(months_list)).long(),  # [T,]
-            "day_ids": torch.from_numpy(np.asarray(days_list)).long(),  # [T,]
-            "hour_ids": torch.from_numpy(np.asarray(hours_list)).long(),  # [T,]
-            
-            "locations": self.loc_mat,  # [N, F]
-            "edge_matrix": self.edge_mat, # [N, N]
+            "month_ids": torch.from_numpy(np.asarray(months_list).reshape(T_S, S)).long(),  # [T // S, S]
+            "day_ids": torch.from_numpy(np.asarray(days_list).reshape(T_S, S)).long(),  # [T // S, S]
+            "hour_ids": torch.from_numpy(np.asarray(hours_list).reshape(T_S, S)).long(),  # [T // S, S]
         }
 
 
@@ -290,12 +329,14 @@ class DummyDatasetConfig():
         n_samples = 100,
         n_nodes = 30,
         n_features = 5,
-        maxlen = 10
+        maxlen = 10,
+        seqlen = 5
     ):
         self.n_samples = n_samples
         self.n_nodes = n_nodes
         self.n_features = n_features
         self.maxlen = maxlen
+        self.seqlen = seqlen
 
 # # --- Actual --- #
 # if __name__ == "__main__":

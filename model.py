@@ -56,8 +56,8 @@ class HeirarchicalTransformerConfig:
 
     n_global = None
     num_nodes = None
-    input_dim = 8
-    location_dim = 3
+    num_features = 8
+    location_features = 3
 
     n_embd = 768
     n_layer = 12
@@ -88,10 +88,10 @@ class HeirarchicalTransformerConfig:
             raise ValueError("Need to provide argument `n_global`")
         if "num_nodes" not in self.attrs:
             raise ValueError("Need to provide argument `num_nodes`")
-        if "input_dim" not in self.attrs:
-            raise ValueError("Need to provide argument `input_dim`")
-        if "location_dim" not in self.attrs:
-            raise ValueError("Need to provide argument `location_dim`")
+        if "num_features" not in self.attrs:
+            raise ValueError("Need to provide argument `num_features`")
+        if "location_features" not in self.attrs:
+            raise ValueError("Need to provide argument `location_features`")
 
         self.config_to_hf_format()
 
@@ -173,7 +173,7 @@ class Conv1D(nn.Module):
         size_out = x.size()[:-1] + (self.nf,)
         x = torch.addmm(
             input=self.bias,
-            mat1=x.view(-1, x.size(-1)),
+            mat1=x.reshape(-1, x.size(-1)),
             mat2=self.weight,
             beta=self.beta,
             alpha=1
@@ -252,8 +252,11 @@ class NodeAttention(nn.Module):
         w = w / (float(v.size(-1)) ** 0.5)
 
         if attention_mask is not None:
+            B, T, N, _ = attention_mask.size()
+            a2 = attention_mask.view(B*T, 1, N, N)
+            # print(w.size(), attention_mask.size(), a2.size())
             # Apply the attention mask
-            w = w + attention_mask
+            w = w + a2
 
         # add the edge matrix
         w += edge_matrix
@@ -583,6 +586,8 @@ class GlobalTransfoXLModeller(nn.Module):
         if mems is None:
             mems = self.init_mems(bsz)
 
+        # print(day_ids.max(), hour_ids.max())
+
         # perform time embeddings
         time_embedding = torch.cat([
             self.mo_embedding(month_ids),
@@ -668,8 +673,8 @@ class HeirarchicalTransformer(nn.Module):
         super().__init__()
 
         # assertions
-        assert config.n_embd % 8 == 0, "8 inputs require dim to be divisible by 8"
-        assert config.n_embd % 3 == 0, "location requires divisible by 3 "
+        assert config.n_embd % config.num_features == 0, f"inputs require dim to be divisible by {config.num_features}"
+        assert config.n_embd % config.location_features == 0, f"location requires divisible by {config.location_features}"
 
         # WeatherMetricLinear + Location Embedding + Time embedding
         """WeatherMetricLinear
@@ -684,14 +689,14 @@ class HeirarchicalTransformer(nn.Module):
         """
 
         # rather than having different linear systems, have a
-        self.weather_metric_linear = Conv1D(config.n_embd, config.input_dim, bias=False)
+        self.weather_metric_linear = Conv1D(config.n_embd, config.num_features, bias=False)
 
         """LocationEmbedding
         'elvt': Elevation
         'lat' : Latitude
         'lon' : Longitude
         """
-        self.location_embedding = Conv1D(config.n_embd, config.location_dim, bias=False)
+        self.location_embedding = Conv1D(config.n_embd, config.location_features, bias=False)
 
         # encoder - temporal - decoder blocks
         self.node_encoder = nn.ModuleList([NodeEncoderBlock(config), ] * config.n_layer)
@@ -701,7 +706,7 @@ class HeirarchicalTransformer(nn.Module):
         self.ln2 = nn.LayerNorm(config.n_global, eps=config.layer_norm_epsilon)
 
         # WeatherMetricHead
-        self.weather_metric_head = Conv1D(config.input_dim, config.n_embd)
+        self.weather_metric_head = Conv1D(config.num_features, config.n_embd)
 
         self.n_global = config.n_global
 
@@ -716,11 +721,13 @@ class HeirarchicalTransformer(nn.Module):
         # separate out all parameters to those that will and won't experience regularizing weight decay
         decay = set()
         no_decay = set()
-        whitelist_weight_modules = (torch.nn.Linear, )
+        whitelist_weight_modules = (torch.nn.Linear, Conv1D, )
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.named_modules():
             for pn, p in m.named_parameters():
                 fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+
+                # print("##", fpn)
 
                 if pn.endswith('bias'):
                     # all biases will not be decayed
@@ -733,7 +740,7 @@ class HeirarchicalTransformer(nn.Module):
                     no_decay.add(fpn)
 
         # special case the position embedding parameter in the root GPT module as not decayed
-        no_decay.add('pos_emb')
+        # no_decay.add('pos_emb')
 
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in self.named_parameters()}
@@ -764,16 +771,23 @@ class HeirarchicalTransformer(nn.Module):
         month_ids,
         day_ids,
         hour_ids,
+        node_mask,
         mems=None,
-        attention_mask=None,
         output_attentions=False,
-        get_loss=False,
-        loss_mask=None
+        get_loss=False
     ):
+
+        # print(input.size(), locations.size())
+
         # get the input to node encoder
         weather_station_state = self.weather_metric_linear(input)
         loc_emb = self.location_embedding(locations)
+        # B = loc_emb.size(0)
+        # loc_emb = loc_emb.reshape(B, 1, *loc_emb.size()[1:])
+        # print(weather_station_state.size(), loc_emb.size())
+
         hidden_states = weather_station_state + loc_emb
+        # print(hidden_states.size())
 
         B, T, N, E = hidden_states.size()
         global_states = torch.zeros(B, T, self.n_global)
@@ -781,6 +795,20 @@ class HeirarchicalTransformer(nn.Module):
         # print("INPUT (L0)")
         # print("hidden_states:", hidden_states.size())
         # print("global_states:", global_states.size())
+
+        # create the node_mask for cases where 
+        node_attention_mask = torch.zeros(*list(node_mask.size()), list(node_mask.size())[-1])
+        for i in range(node_mask.size(0)):
+            for j in range(node_mask.size(1)):
+                idx = torch.masked_select(
+                    torch.arange(len(node_mask[i, j])),
+                    node_mask[i, j] == 0
+                ).tolist()
+                if idx:
+                    for k in idx:
+                        node_attention_mask[i, j, k] = 1e-6
+                        node_attention_mask[i, j, :, k] = 1e-6
+        # del node_mask
 
         attentions = []
 
@@ -791,7 +819,7 @@ class HeirarchicalTransformer(nn.Module):
                 hidden_states=hidden_states,
                 global_states=global_states,
                 edge_matrix=edge_matrix,
-                attention_mask=attention_mask,
+                attention_mask=node_attention_mask,
                 output_attentions=output_attentions
             )
             hidden_states, global_states = layer_outputs[:2]
@@ -849,14 +877,14 @@ class HeirarchicalTransformer(nn.Module):
             # shift the values and calculate MSE loss
             logits = out[:, :-1, :, :].contiguous().view(-1, F)
             targets = input[:, 1:, :, :].contiguous().view(-1, F)
+            node_mask = node_mask[:, 1:, :].contiguous().view(-1, 1)
 
             lossfn = nn.MSELoss(reduction="none")
             loss = lossfn(logits, targets)
 
-            if loss_mask is not None:
-                loss = loss * loss_mask
-            loss = torch.mean(loss)
-            output.append(loss)
+            # only select those losses where we have the data for usage
+            masked_loss = torch.masked_select(loss, node_mask == 1)
+            output.append(masked_loss.mean())
 
         if output_attentions:
             output.append(attentions)
@@ -875,8 +903,8 @@ class HeirarchicalTransformer(nn.Module):
 #         n_head=8,
 #         n_layer=12,
 #         num_nodes=N,
-#         input_dim=8,
-#         location_dim=3
+#         num_features=8,
+#         location_features=3
 #     )
 
 #     edge_matrix = torch.randn(N, N)
@@ -887,8 +915,8 @@ class HeirarchicalTransformer(nn.Module):
 #     hour_ids = torch.empty(B, config.maxlen).random_(24).long()
 
 #     sample_data = {
-#         "input": torch.randn(B, T, N, config.input_dim),
-#         "locations": torch.randn(B, T, N, config.location_dim),
+#         "input": torch.randn(B, T, N, config.num_features),
+#         "locations": torch.randn(B, T, N, config.location_features),
 #         "edge_matrix": edge_matrix,
 #         "month_ids": month_ids,
 #         "day_ids": day_ids,
@@ -911,8 +939,8 @@ class HeirarchicalTransformer(nn.Module):
 
 #     for i in range(T*2):
 #         sample_data = {
-#             "input": torch.randn(B, T, N, config.input_dim),
-#             "locations": torch.randn(B, T, N, config.location_dim),
+#             "input": torch.randn(B, T, N, config.num_features),
+#             "locations": torch.randn(B, T, N, config.location_features),
 #             "edge_matrix": edge_matrix,
 #             "month_ids": torch.empty(B, config.maxlen).random_(12).long(),
 #             "day_ids": torch.empty(B, config.maxlen).random_(31).long(),
