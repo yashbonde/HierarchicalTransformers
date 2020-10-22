@@ -9,7 +9,7 @@ The idea is very simple, there are two parts to climate:
 We only consider the Local effects for now since there is not much work on this. The local effects can be considered like message passing in a graph. Each node has some attributes of it's own and the observations at one place then gets "transmitted/passed" to different location like ["El Niño"](https://en.wikipedia.org/wiki/El_Ni%C3%B1o).
 
 
-## [Data]("./old/data.md")
+## [Data](old/data.md)
 
 ## Repo Structure
 The repo is super simple there are 6 main files:
