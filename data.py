@@ -1,6 +1,6 @@
 """
-How to do data?
 ===============
+How to do data?
 The entire weather dataset cannot be loaded completely in memory
 so this has to be either
 A. iterative datatset where we yield samples [no]
@@ -41,6 +41,8 @@ each call for fetching, this is because I had not come up with a strategy on
 how to normalise this at the time of dumping. Each sequence is normalised
 using `norm_sequence` function.
 
+All normalised values are given in `norm_sequence`
+
 # 15.09.2020 - @yashbonde
 """
 
@@ -51,6 +53,56 @@ from tabulate import tabulate
 
 import torch
 from torch.utils.data import Dataset
+
+# ---- norm methods ---- #
+def log_norm(x, thresh = 4500):
+    x[x > thresh] = thresh
+    return np.log(x)
+
+normalisation_functions = {
+    "temp": lambda x: (x - 23.70349134402726) / 5.546263797529582,
+    "max_temp": lambda x: (x - 23.70349134402726) / 5.546263797529582,
+    "min_temp": lambda x: (x - 23.70349134402726) / 5.546263797529582,
+    
+    "dew_point_temp": lambda x: (x - 17.228775847494408) / 4.874964913785063,
+    "min_dew": lambda x: (x - 17.228775847494408) / 4.874964913785063,
+    "max_dew": lambda x: (x - 17.228775847494408) / 4.874964913785063,
+    
+    "pressure": lambda x: (x - 965.715544383282) / 37.57273866463611,
+    "min_pressure": lambda x: (x - 965.715544383282) / 37.57273866463611,
+    "max_pressure": lambda x: (x - 965.715544383282) / 37.57273866463611,
+    
+    "wind_speed": lambda x: (x - 3.9103860481733657) / 2.820015788831639,
+    "wind_gust": lambda x: (x - 3.9103860481733657) / 2.820015788831639,
+    "wind_direction": lambda x: (x - 180) / 180,
+    
+    "humidity": lambda x: x / 90,
+    "max_humidity": lambda x: x / 90,
+    "min_humidity": lambda x: x / 90,
+    
+    "radiation": lambda x: log_norm(x, 4500),
+    "total_precipitation": lambda x: log_norm(x, 30),
+}
+
+keys = [
+    'total_precipitation',
+    'pressure',
+    'max_pressure',
+    'min_pressure',
+    'radiation',
+    'temp',
+    'dew_point_temp',
+    'max_temp',
+    'min_temp',
+    'max_dew',
+    'min_dew',
+    'max_humidity',
+    'min_humidity',
+    'humidity',
+    'wind_direction',
+    'wind_gust',
+    'wind_speed'
+]
 
 # ---- functions ---- #
 
@@ -114,23 +166,9 @@ class WeatherDataset(Dataset):
         self.edge_mat = torch.from_numpy(edge_mat.astype(np.float32))
 
     def norm_sequence(self, seq):
-        seq[..., 0] /= 1
-        seq[..., 1] /= 1
-        seq[..., 2] /= 1
-        seq[..., 3] /= 1
-        seq[..., 4] /= 1
-        seq[..., 5] /= 1
-        seq[..., 6] /= 1
-        seq[..., 7] /= 1
-        seq[..., 8] /= 1
-        seq[..., 9] /= 1
-        seq[..., 10] /= 1
-        seq[..., 11] /= 1
-        seq[..., 12] /= 1
-        seq[..., 13] /= 1
-        seq[..., 14] /= 1
-        seq[..., 15] /= 1
-        seq[..., 16] /= 1
+        for i in range(len(keys)):
+            # get key and then apply that particular normalisation function
+            seq[:, i] = normalisation_functions[ keys[i] ](seq[:, i])
         return seq
 
     def get_index(self, index: str):
