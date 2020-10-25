@@ -37,7 +37,7 @@ UTILS
 
 Functions and classes
 """
-
+ATT_MASK = 1e-6
 # this is giant because requires managing both for GPT-2 and Transformer-XL configurations
 
 
@@ -347,6 +347,10 @@ class NodeEncoderBlock(nn.Module):
         self.n2g_act = ACT2FN[config.activation_function]
         self.ln3 = nn.LayerNorm(G, eps=config.layer_norm_epsilon)
 
+    @property
+    def num_params(self):
+        return sum(dict((p.data_ptr(), p.numel()) for p in self.parameters()).values())
+
     def forward(
         self,
         hidden_states,
@@ -358,6 +362,10 @@ class NodeEncoderBlock(nn.Module):
         use_cache=False,
         output_attentions=False,
     ):
+        """
+        (node) -> Norm -> Att -> (+node) --> Norm -> MLP -|-> (node)
+        (node) -> pool -> (+global) -> (global)
+        """
         attn_outputs = self.att(
             self.ln1(hidden_states),
             edge_matrix,
@@ -400,6 +408,10 @@ class NodeDecoderBlock(nn.Module):
         self.ln2 = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
         self.g2n = Conv1D(E, G)
         self.g2n_act = ACT2FN[config.activation_function]
+
+    @property
+    def num_params(self):
+        return sum(dict((p.data_ptr(), p.numel()) for p in self.parameters()).values())
 
     def forward(
         self,
@@ -513,9 +525,13 @@ class GlobalTransfoXLModeller(nn.Module):
                 r_r_bias=None,
                 r_w_bias=None,
                 layer_norm_epsilon=config.layer_norm_epsilon
-            ), ] * config.n_layer)
+            ) for _ in range(config.n_layer)])
 
         self.drop = nn.Dropout(config.embd_pdrop)
+
+    @property
+    def num_params(self):
+        return sum(dict((p.data_ptr(), p.numel()) for p in self.parameters()).values())
 
     def get_input_embeddings(self):
         return self.embedding
@@ -586,7 +602,7 @@ class GlobalTransfoXLModeller(nn.Module):
         if mems is None:
             mems = self.init_mems(bsz)
 
-        # print(day_ids.max(), hour_ids.max())
+        # print(month_ids.max(), day_ids.max(), hour_ids.max())
 
         # perform time embeddings
         time_embedding = torch.cat([
@@ -699,11 +715,12 @@ class HeirarchicalTransformer(nn.Module):
         self.location_embedding = Conv1D(config.n_embd, config.location_features, bias=False)
 
         # encoder - temporal - decoder blocks
-        self.node_encoder = nn.ModuleList([NodeEncoderBlock(config), ] * config.n_layer)
+        self.node_encoder = nn.ModuleList([NodeEncoderBlock(config) for _ in range(config.n_layer)])
         self.temporal_encoder = GlobalTransfoXLModeller(config)
-        self.node_decoder = nn.ModuleList([NodeDecoderBlock(config), ] * config.n_layer)
+        self.node_decoder = nn.ModuleList([NodeDecoderBlock(config) for _ in range(config.n_layer)])
         self.ln1 = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
-        self.ln2 = nn.LayerNorm(config.n_global, eps=config.layer_norm_epsilon)
+
+        # self.ln2 = nn.LayerNorm(config.n_global, eps=config.layer_norm_epsilon)
 
         # WeatherMetricHead
         self.weather_metric_head = Conv1D(config.num_features, config.n_embd)
@@ -803,8 +820,8 @@ class HeirarchicalTransformer(nn.Module):
                 ).tolist()
                 if idx:
                     for k in idx:
-                        node_attention_mask[i, j, k] = 1e-6
-                        node_attention_mask[i, j, :, k] = 1e-6
+                        node_attention_mask[i, j, k] = ATT_MASK
+                        node_attention_mask[i, j, :, k] = ATT_MASK
         # del node_mask
 
         attentions = []
@@ -862,7 +879,10 @@ class HeirarchicalTransformer(nn.Module):
         # print("node_state_prime2:", node_state_prime2.size())
 
         node_states = self.ln1(node_state_prime2)
-        global_states = self.ln2(global_states_prime2)
+        
+        # Note that we do not use this global state anywhere, but this is
+        # just a head that can be used anywhere.
+        # global_states = self.ln2(global_states_prime2)
 
         # get the output values
         out = self.weather_metric_head(node_states)  # [B, T, N, F]

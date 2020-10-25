@@ -55,9 +55,10 @@ import torch
 from torch.utils.data import Dataset
 
 # ---- norm methods ---- #
-def log_norm(x, thresh = 4500, eps = 1e-9 ):
+def log_norm(x, thresh = 4500, eps = 1e-5):
     x[x > thresh] = thresh
-    return np.log(x + eps)
+    x[x <= 0] = eps
+    return np.nan_to_num(np.log(x + eps))
 
 normalisation_functions = {
     "temp": lambda x: (x - 23.70349134402726) / 5.546263797529582,
@@ -155,9 +156,7 @@ class WeatherDataset(Dataset):
         edge_mat = np.ones((len(lats), len(lats)), dtype = np.float32)
         for i, (lat1, lon1) in enumerate(zip(lats, long)):
             for j, (lat2, lon2) in enumerate(zip(lats[i+1:], long[i+1:])):
-                d = convert_latlong_to_great_circle(
-                    (lat1, lon1), (lat2, lon2)
-                )
+                d = convert_latlong_to_great_circle((lat1, lon1), (lat2, lon2))
                 d2 = 1 / math.sqrt(d)
                 edge_mat[i, i+j+1] = d2
                 edge_mat[i+j+1, i] = d2
