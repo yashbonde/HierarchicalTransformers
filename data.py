@@ -55,9 +55,9 @@ import torch
 from torch.utils.data import Dataset
 
 # ---- norm methods ---- #
-def log_norm(x, thresh = 4500):
+def log_norm(x, thresh = 4500, eps = 1e-9 ):
     x[x > thresh] = thresh
-    return np.log(x)
+    return np.log(x + eps)
 
 normalisation_functions = {
     "temp": lambda x: (x - 23.70349134402726) / 5.546263797529582,
@@ -221,31 +221,47 @@ class WeatherDataset(Dataset):
         days_list = days.tolist()
         hours_list = hours.tolist()
 
+        T_S = df.shape[0] // config.seqlen
+        S = config.seqlen
+        N, F = df.shape[1:]
+
         # save mem?
         del df
         del masks
         del months, days, hours
 
         return {
-            "input": torch.from_numpy(np.asarray(dflist).astype(np.float32)),  # [T, N, F]
-            "locations": self.loc_mat,  # [T, N, F]
-            "node_mask": torch.from_numpy(np.asarray(msklist)).long(), # [T, N, N]
-            "edge_matrix": self.edge_mat, # [N, N]
-            "month_ids": torch.from_numpy(np.asarray(months_list)).long(),  # [T,]
-            "day_ids": torch.from_numpy(np.asarray(days_list)).long(),  # [T,]
-            "hour_ids": torch.from_numpy(np.asarray(hours_list)).long(),  # [T,]
+            "input": torch.from_numpy(
+                np.asarray(dflist).astype(np.float32).reshape(T_S, S, N, F)
+            ),  # [T, N, F]
+
+            "node_mask": torch.from_numpy(
+                np.asarray(msklist).reshape(T_S, S, N)
+            ).long(), # [T_S, S, N]
+
+            "month_ids": torch.from_numpy(
+                np.asarray(months_list).reshape(T_S, S)
+            ).long(),  # [T_S, S]
+            "day_ids": torch.from_numpy(
+                np.asarray(days_list).reshape(T_S, S)
+            ).long(),  # [T_S, S]
+            "hour_ids": torch.from_numpy(
+                np.asarray(hours_list).reshape(T_S, S)
+            ).long(),  # [T_S, S]
         }
 
 class DatasetConfig:
     maxlen = None # what is the maximum length of sequence to return
     hdf_fpath = None
     index = None
+    seqlen = None
 
     def __init__(self, **kwargs):
         self.attrs = [
             "maxlen",
             "hdf_fpath",
             "index",
+            "seqlen"
         ]
         for k,v in kwargs.items():
             setattr(self, k, v)
