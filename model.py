@@ -729,6 +729,8 @@ class HeirarchicalTransformer(nn.Module):
 
     def configure_optimizers(self, train_config):
         """
+        train_config should have: weight_decay, learning_rate, betas
+
         This long function is unfortunately doing something very simple and is being very defensive:
         We are separating out all parameters of the model into two buckets: those that will experience
         weight decay for regularization and those that won't (biases, and layernorm/embedding weights).
@@ -769,8 +771,7 @@ class HeirarchicalTransformer(nn.Module):
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
-        # optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
-        optimizer = AdaBelief(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
+        optimizer = AdaBelief(optim_groups, lr=train_config.lr, betas=train_config.betas)
         return optimizer
 
     @property

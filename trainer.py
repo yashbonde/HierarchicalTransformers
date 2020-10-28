@@ -1,21 +1,13 @@
 """trainer
 15.09.2020"""
 
-import os
 import time
-import math
 import random
-import logging
-import platform
-import subprocess
 import numpy as np
 from tqdm import tqdm
 
 import torch
-from torch import nn
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR, CosineAnnealingWarmRestarts, MultiStepLR
-from torch.nn import functional as F
+from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -37,21 +29,17 @@ class Trainer:
         torch.save(raw_model.state_dict(), self.config.ckpt_path)
 
     def train(self, verbose = False):
-        model, config, tokenizer = self.model, self.config, self.tokenizer
-        optimizer = AdamW(
-            model.parameters(),
-            lr = self.config.lr,
-            betas = self.config.betas
-        )
+        model, config = self.model, self.config
+        optimizer = model.configure_optimizers(config)
         lrscheduler = OneCycleLR(
             optimizer,
             max_lr = config.lr,
-            total_steps = config.num_batch*config.max_epochs
+            total_steps=config.num_batch*config.max_epochs*config.tmult
         )
 
         with SummaryWriter(log_dir=config.tb_path, flush_secs=20) as tb:
             
-            def run_epoch(split, epoch, _gs = None):
+            def run_epoch(split, epoch, _gs):
                 is_train = split == "train"
                 model.train(is_train)
                 data = self.train_dataset if is_train else self.test_dataset
@@ -66,69 +54,50 @@ class Trainer:
                 losses = []
                 pbar = tqdm(enumerate(dl))
                 for it, d in pbar:
-                    _l = -1 if not losses else losses[-1]
-                    if is_train:
-                        pbar.set_description(f"[TRAIN] GS: {_gs}, Epoch: {epoch}, Loss: {round(_l, 5)}")
-                    else:
-                        pbar.set_description(f"[VAL] Epoch: {epoch}")
 
                     with torch.set_grad_enabled(is_train):
-                        logits, mems, loss = model(**d, get_loss = True,)
-                        losses.append(loss.item())
+                        mems = None
+                        total_steps = d["input"].size(1)
+                        for t_step in range(total_steps):
+                            _l = -1 if not losses else losses[-1]
+                            if is_train:
+                                pbar.set_description(f"[TRAIN] GS: {_gs}, Time: {t_step}/{total_steps},"
+                                f" Epoch: {epoch}, Loss: {round(_l, 5)}")
+                            else:
+                                pbar.set_description(f"[VAL] Epoch: {epoch}")
 
-                    if is_train:
-                        # add things to tb, loss and attention images
-                        tb.add_scalar("loss", out.loss.item(), global_step=_gs, walltime=time.time())
-                        tb.add_scalar("lr", lrscheduler.get_lr()[0], global_step=_gs, walltime=time.time())
-#                         for l, att in enumerate(out.attentions):
-#                             tb.add_image(
-#                                 f"attention/layer_{l}", att[0][0],
-#                                 global_step=gs, walltime=time.time(),
-#                                 dataformats= "HW"
-#                             )
 
-                        out.loss.backward()
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
-                        optimizer.step()
-                        
-                        # when using CosineAnnealing
-                        # lrscheduler.step(epoch + it / len(data))
-                        lrscheduler.step()
-                        _gs += 1
-
-                
-                if not is_train:
-                    if epoch % config.sample_every == 0:
-                        with open(config.tb_path + f'/samples_{gs}.txt', "w") as f:
-                            samples_st = time.time()
-                            print("Creating Samples ... might take some time")
-                            out = model.generate(
-                                input_ids = d["input_ids"][:30, :30],
-                                max_length = 150,
-                                min_length = 60,
-                                do_sample = True,
-                                early_stopping = True,
-                                num_beams = 20,
-                                temperature = 0.9,
-                                top_k = 10,
-                                top_p = 0.9,
-                                bos_token_id = tokenizer.bos_id(),
-                                pad_token_id = tokenizer.pad_id(),
-                                eos_token_id = tokenizer.eos_id(),
+                            logits, mems, loss = model(
+                                **{k: v[:, t_step, ...] for k, v in d.items()},
+                                mems = mems,
+                                edge_matrix=data.edge_mat,
+                                locations=data.loc_mat,
+                                get_loss=True,
                             )
-                            input_tokens = [tokenizer.decode_ids(x) for x in d["input_ids"][:30, :30].tolist()]
-                            generated = [tokenizer.decode_ids(x) for x in out[:,30:].tolist()]
-                            delim = "\n" + "="*60 + "\n"
-                            strings = [f"{i} || {g}" for i,g in zip(input_tokens, generated)]
-                            strings = delim.join(strings)
-                            print(strings)
-                            print(f"... took {time.time() - samples_st:.3}s")
-                            print(f"Saving samples at: {config.tb_path + f'/samples_{gs}.txt'}")
-                            f.write(strings)
+                            losses.append(loss.item())
 
+                            if is_train:
+                                # add things to tb, loss and attention images
+                                tb.add_scalar("loss", loss.item(), global_step=_gs, walltime=time.time())
+                                tb.add_scalar("lr", lrscheduler.get_lr()[0], global_step=_gs, walltime=time.time())
+                                # for l, att in enumerate(out.attentions):
+                                #     tb.add_image(
+                                #         f"attention/layer_{l}", att[0][0],
+                                #         global_step=gs, walltime=time.time(),
+                                #         dataformats= "HW"
+                                #     )
+
+                                loss.backward()
+                                torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
+                                optimizer.step()
+                                lrscheduler.step()
+                                _gs += 1
+
+                if not is_train:
+                    # no sampling here, because that really doesn't make any sense
                     test_loss = float(np.mean(losses))
+                    tb.add_scalar("test_loss", test_loss, global_step=_gs, walltime=time.time())
                     return test_loss
-
                 return _gs
 
             # now write wrapper for each epoch
@@ -138,7 +107,7 @@ class Trainer:
             for e in range(config.max_epochs):
                 gs = run_epoch("train", e, gs)
                 if self.test_dataset is not None:
-                    test_loss = run_epoch("test", e)
+                    test_loss = run_epoch("test", e, gs)
                     print(f"Test loss: {test_loss}")
 
                 # early stopping based on the test loss of just save always if no test set is provided
@@ -156,11 +125,13 @@ class Trainer:
 
 
 class TrainerConfig:
+    lr = 0.0001
     max_epochs = 10
     batch_size = 128
     betas = (0.9, 0.95)
     grad_norm_clip = 1.0
     num_workers = 0 # for DataLoader
+    weight_decay = 0.1 # only applied on matmul weights
 
     len_data = None # required for CosineAnnealing
     sample_every = 5 # after how many epochs to log
@@ -168,14 +139,17 @@ class TrainerConfig:
     
     patience = 5 # training stops after patience runs out
 
+    memlen = None # memory lenght of the model
+    seqlen = None # length on which it is trained
+
     def __init__(self, **kwargs):
         self.attrs = []
         for k,v in kwargs.items():
             setattr(self, k, v)
             self.attrs.append(k)
 
-        self.num_batch = (self.len_data // self.batch_size) + \
-            int(self.len_data % self.batch_size != 0),
+        self.num_batch = (self.len_data // self.batch_size) + int(self.len_data % self.batch_size != 0)
+        self.tmult = self.memlen // self.seqlen # each sample has its own number of time steps
 
     def __repr__(self):
         return "---- TRAINER CONFIGURATION ----\n" + \

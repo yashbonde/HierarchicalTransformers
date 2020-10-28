@@ -9,7 +9,7 @@ from heirarchical_transformers import HeirarchicalTransformer, HeirarchicalTrans
 from train import Trainer, TrainerConfig
 
 # --- arguments
-args = ArgumentParser(description="GPT based standardisation methods")
+args = ArgumentParser(description="Heirarchical Transformer for climate modelling")
 
 # --- paths
 args.add_argument("--save_folder", default = "models", type = str, help = "folder to save all models")
@@ -23,7 +23,7 @@ args.add_argument("--test_index", default = "/Users/yashbonde/Desktop/AI/vv2/_no
 args.add_argument("--seed", default = None, type = int, help = "seed value for training")
 
 # --- arch
-args.add_argument("--n_node_embd", default=144, type=int, help="Emebdding dim for each ndoe")
+args.add_argument("--n_node_embd", default=144, type=int, help="Emebdding dim for each node")
 args.add_argument("--n_global_embd", default=144, type=int, help="Embedding dim for global vector")
 args.add_argument("--n_layer", default = 12, type = int, help = "Num Layers")
 args.add_argument("--n_head", default = 6, type = int, help = "Num Heads")
@@ -81,7 +81,7 @@ modelConfig = HeirarchicalTransformerConfig(
 )
 
 model = HeirarchicalTransformer(modelConfig)
-print(f"Number of parameters: {model.num_parameters()}")
+print(f"Number of parameters: {model.num_params}")
 
 # Trainer
 trainConfig = TrainerConfig(
@@ -96,5 +96,5 @@ trainConfig = TrainerConfig(
 )
 
 print(modelConfig, dataTrainConfig, dataTestConfig, trainConfig)
-trainer = Trainer(model, dtrain, dtest, trainConfig, t)
+trainer = Trainer(model, dtrain, dtest, trainConfig)
 trainer.train()
