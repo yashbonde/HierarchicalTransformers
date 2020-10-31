@@ -25,8 +25,6 @@ def daterange(start_date, end_date):
 
 logger = logging.getLogger(f"prepare_data_{str(datetime.now())}.log")
 
-print("‼️")
-
 COLUMNS = [
     ("total_precipitation", "mm"),
     ("pressure", "mB"),
@@ -93,7 +91,7 @@ if __name__ == "__main__":
     args.add_argument('-d', action='store_true', help = "download all files")
     args.add_argument('-x', action='store_true', help="extract zip files")
     args.add_argument('-p', action='store_true', help = "parse dataset")
-    args.add_argument('-c', action='store_true', help="construct dataset")
+    args.add_argument('-c', action='store_true', help="compile dataset")
     args.add_argument('--folder', type = str, default="INMET", help = "folder to store all the years data")
     args = args.parse_args()
 
@@ -102,9 +100,9 @@ if __name__ == "__main__":
     urls = [f"https://portal.inmet.gov.br/uploads/dadoshistoricos/{x}.zip" for x in range(2000, 2021)]
     if args.d:
         for u in urls:
-            print("fetching url:", u)
+            logging.info("fetching url: {u}")
             if os.path.exists("./" + u.split("/")[-1]):
-                print("Skipping")
+                logging.info("Skipping")
                 continue
             subprocess.run(["wget", u, ""])        
         subprocess.run(["mv", "*.zip", args.folder])
@@ -145,9 +143,9 @@ if __name__ == "__main__":
             "wsids": sorted(list(consol.values()))
         }
 
-        print("Saving:", args.folder + "/consol.csv")
+        logging.info(f"Saving: {args.folder + '/consol.csv'}")
         pd.DataFrame(data).to_csv(args.folder + "/consol.csv")
-        print("Saving:", args.folder + "/wsid_meta.csv")
+        logging.info("Saving: {args.folder + '/wsid_meta.csv'}")
         pd.DataFrame(meta_master).to_csv(args.folder + "/wsid_meta.csv")
 
 
@@ -156,7 +154,7 @@ if __name__ == "__main__":
         all_files = glob("../INMET" + "/20*/*.CSV")
 
         # get all the dfs
-        print("Get all dfs")
+        logging.info("Get all dfs")
         dfs = []
         year_to_idx = {}
         cntr = 0
@@ -169,7 +167,7 @@ if __name__ == "__main__":
             try:
                 dfs.append(open_csv(f, wsid))
             except Exception as e:
-                print(f"Failed: {f} --> {e}")
+                logging.info(f"Failed: {f} --> {e}")
 
             year_to_idx.setdefault(year, [])
             year_to_idx[year].append(cntr)
@@ -184,7 +182,7 @@ if __name__ == "__main__":
             year_wise[k] = arr
 
         # create exhaustive jsons
-        print("dumping exhaustive jsons")
+        logging.info("dumping exhaustive jsons")
         os.makedirs(args.folder + '/target', exist_ok=False)
         for year in year_wise:
             for df in year_wise[year]:
@@ -198,10 +196,10 @@ if __name__ == "__main__":
 
         # start making master
         all_files = glob(args.folder + "/target/*.json")
-        print(f"Found: {len(all_files)} files")
+        logging.info(f"Found: {len(all_files)} files")
 
         # first part is creating a unfied global index
-        print("creating unified global index")
+        logging.info("creating unified global index")
         unified_idx = set()
         for _, fpath in zip(trange(len(all_files)), all_files):
             with open(fpath, 'r') as f:
@@ -211,7 +209,7 @@ if __name__ == "__main__":
                     unified_idx.add(f"{d}T{h}")
 
         unified_idx = sorted(list(set(unified_idx)))
-        print(f"idxs: {len(unified_idx)}")
+        logging.info(f"idxs: {len(unified_idx)}")
 
         os.makedirs(args.folder + '/final', exist_ok=False)
         with open(args.folder + "final/index.json", "w") as f:
@@ -260,5 +258,5 @@ if __name__ == "__main__":
             with open(f"final/{wsid}.json", "w") as f:
                 f.write(json.dumps(wsid_data))
 
-    print("completed, exiting")
+    logging.info("completed, exiting")
 
