@@ -31,6 +31,10 @@ from transformers.modeling_transfo_xl import (
 
 from optimizer import AdaBelief
 
+DEVICE = "cpu"
+if torch.cuda.is_available():
+    DEVICE = torch.cuda.current_device()
+
 """
 UTILS
 =====
@@ -254,7 +258,7 @@ class NodeAttention(nn.Module):
         if attention_mask is not None:
             B, T, N, _ = attention_mask.size()
             a2 = attention_mask.view(B*T, 1, N, N)
-            # print(w.size(), attention_mask.size(), a2.size())
+            print(w.size(), attention_mask.size(), a2.size(), w.device, a2.device)
             # Apply the attention mask
             w = w + a2
 
@@ -293,8 +297,7 @@ class NodeAttention(nn.Module):
         B, T, N, E = hidden_states.size()
         hidden_states = hidden_states.view(B*T, N, E)
 
-        query, key, value = self.c_attn(
-            hidden_states).split(self.split_size, dim=2)
+        query, key, value = self.c_attn(hidden_states).split(self.split_size, dim=2)
 
         query = self.split_heads(query)  # [B*T, H, N, E]
         key = self.split_heads(key, k=True)  # [B*T, H, E, N]
@@ -338,13 +341,16 @@ class NodeEncoderBlock(nn.Module):
         super().__init__()
         E = config.n_embd
         G = config.n_global
+        
         self.att = NodeAttention(config)
         self.ln1 = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
         self.mlp = MLP(config, E * 4)
         self.ln2 = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
-        self.n2g_pool = NodeToGlobalMaxPool(config.num_nodes)
+        
         self.n2g = Conv1D(G, E)
         self.n2g_act = ACT2FN[config.activation_function]
+        self.n2g_pool = NodeToGlobalMaxPool(config.num_nodes)
+        
         self.ln3 = nn.LayerNorm(G, eps=config.layer_norm_epsilon)
 
     @property
@@ -385,10 +391,13 @@ class NodeEncoderBlock(nn.Module):
 
         # residual connection
         hidden_states = hidden_states + feed_forward_hidden_states
-
+        
+        print("OOOOO", hidden_states.size(), hidden_states.device)
         # to global
-        n2g = self.n2g(hidden_states)  # [B, T, N, G]
-        n2g = self.n2g_pool(self.n2g_act(n2g))  # [B, T, G]
+        n2g = self.n2g_act(self.n2g(hidden_states))  # [B, T, N, G]
+        print("MMMMM", global_states.size(), global_states.device, n2g.size(), n2g.device)
+        n2g = self.n2g_pool(n2g)  # [B, T, G]
+        print("NNNNN", global_states.size(), global_states.device, n2g.size(), n2g.device)
         global_states = self.ln3(global_states + n2g)  # [B, T, G]
 
         outputs = [hidden_states, global_states] + outputs
@@ -463,6 +472,10 @@ Re-write the main model.
 
 
 class GlobalTransfoXLModeller(nn.Module):
+    """
+    Apparently there is some shit with running the TransfoXL Model with nn.DataParallel
+    read more here: https://github.com/huggingface/transformers/issues/8145
+    """
     def __init__(self, config):
         super().__init__()
 
@@ -513,7 +526,7 @@ class GlobalTransfoXLModeller(nn.Module):
 
         self.position_embedding = PositionalEmbedding(config.d_model)
 
-        self.layers = nn.ModuleList([
+        self.layers = nn.Sequential(*[
             RelPartialLearnableDecoderLayer(
                 n_head=config.n_head,
                 d_model=config.d_model,
@@ -548,10 +561,12 @@ class GlobalTransfoXLModeller(nn.Module):
     def init_mems(self, bsz):
         if self.mem_len > 0:
             mems = []
-            param = next(self.parameters())
+            try:
+                param = next(self.parameters())
+            except Exception:
+                return None
             for i in range(self.n_layer):
-                empty = torch.zeros(
-                    self.mem_len, bsz, self.config.d_model, dtype=param.dtype, device=param.device)
+                empty = torch.zeros(self.mem_len, bsz, self.config.d_model, dtype=param.dtype, device=param.device)
                 mems.append(empty)
 
             return mems
@@ -715,9 +730,9 @@ class HeirarchicalTransformer(nn.Module):
         self.location_embedding = Conv1D(config.n_embd, config.location_features, bias=False)
 
         # encoder - temporal - decoder blocks
-        self.node_encoder = nn.ModuleList([NodeEncoderBlock(config) for _ in range(config.n_layer)])
+        self.node_encoder = nn.Sequential(*[NodeEncoderBlock(config) for _ in range(config.n_layer)])
         self.temporal_encoder = GlobalTransfoXLModeller(config)
-        self.node_decoder = nn.ModuleList([NodeDecoderBlock(config) for _ in range(config.n_layer)])
+        self.node_decoder = nn.Sequential(*[NodeDecoderBlock(config) for _ in range(config.n_layer)])
         self.ln1 = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
 
         # self.ln2 = nn.LayerNorm(config.n_global, eps=config.layer_norm_epsilon)
@@ -792,20 +807,29 @@ class HeirarchicalTransformer(nn.Module):
         get_loss=False
     ):
 
-        # print(input.size(), locations.size())
+        print("Input:", input.size(), "locations:", locations.size())
+        print("((((((", self.location_embedding)
+        
+        print("locations:", locations.device)
+        print("edge_matrix:", edge_matrix.device)
+        print("month_ids:", month_ids.device)
+        print("day_ids:", day_ids.device)
+        print("hour_ids:", hour_ids.device)
+        print("node_mask:", node_mask.device)
 
         # get the input to node encoder
         weather_station_state = self.weather_metric_linear(input)
         loc_emb = self.location_embedding(locations)
         # B = loc_emb.size(0)
-        # loc_emb = loc_emb.reshape(B, 1, *loc_emb.size()[1:])
-        # print(weather_station_state.size(), loc_emb.size())
+#         loc_emb = loc_emb.reshape(B, 1, *loc_emb.size()[1:])
+        print("WS_STATE:", weather_station_state.size(), "LocEmb:", loc_emb.size())
 
         hidden_states = weather_station_state + loc_emb
         # print(hidden_states.size())
 
         B, T, N, E = hidden_states.size()
         global_states = torch.zeros(B, T, self.n_global)
+        global_states = global_states.to(DEVICE)
 
         # print("INPUT (L0)")
         # print("hidden_states:", hidden_states.size())
@@ -824,6 +848,7 @@ class HeirarchicalTransformer(nn.Module):
                         node_attention_mask[i, j, k] = ATT_MASK
                         node_attention_mask[i, j, :, k] = ATT_MASK
         # del node_mask
+        node_attention_mask = node_attention_mask.to(DEVICE)
 
         attentions = []
 

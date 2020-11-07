@@ -23,7 +23,8 @@ def daterange(start_date, end_date):
     for n in range(int((end_date - start_date).days)):
         yield start_date + timedelta(n)
 
-logger = logging.getLogger(f"prepare_data_{str(datetime.now())}.log")
+# logger = logging.getLogger(f"prepare_data_{str(datetime.now())}.log")
+logging.basicConfig(level = logging.INFO)
 
 COLUMNS = [
     ("total_precipitation", "mm"),
@@ -93,12 +94,13 @@ if __name__ == "__main__":
     args.add_argument('-p', action='store_true', help = "parse dataset")
     args.add_argument('-c', action='store_true', help="compile dataset")
     args.add_argument('--folder', type = str, default="INMET", help = "folder to store all the years data")
+    args.add_argument('--from_year', default = 2007, type = int, help = "dump is created from this year")
     args = args.parse_args()
 
     os.makedirs(args.folder, exist_ok=True)
 
-    urls = [f"https://portal.inmet.gov.br/uploads/dadoshistoricos/{x}.zip" for x in range(2000, 2021)]
     if args.d:
+        urls = [f"https://portal.inmet.gov.br/uploads/dadoshistoricos/{x}.zip" for x in range(max(2000, args.from_year), 2021)]
         for u in urls:
             logging.info("fetching url: {u}")
             if os.path.exists("./" + u.split("/")[-1]):
@@ -151,79 +153,87 @@ if __name__ == "__main__":
 
     # this is the most time comsuming part, construct the final dataset
     if args.c:
-        all_files = glob("../INMET" + "/20*/*.CSV")
+#         all_files = glob(args.folder + "/20*/*.CSV")
 
         # get all the dfs
-        logging.info("Get all dfs")
-        dfs = []
-        year_to_idx = {}
-        cntr = 0
-        for i, f in zip(trange(len(all_files)), all_files):
-            year = int(f.split("/")[2])
-            if year < 2007:
-                continue
+#         logging.info(f"Get all dfs. Number of files: {len(all_files)} ... this will take sometime.")
+#         dfs = []
+#         year_to_idx = {}
+#         cntr = 0
+#         for i, f in zip(trange(len(all_files)), all_files):
+#             year = int(f.split("/")[1])
+#             if year < args.from_year:
+#                 continue
 
-            wsid = re.findall(r"[A-Z]\d{3}", f)[0]
-            try:
-                dfs.append(open_csv(f, wsid))
-            except Exception as e:
-                logging.info(f"Failed: {f} --> {e}")
+#             wsid = re.findall(r"[A-Z]\d{3}", f)[0]
+#             try:
+#                 dfs.append(open_csv(f, wsid))
+#             except Exception as e:
+#                 logging.info(f"Failed: {f} --> {e}")
 
-            year_to_idx.setdefault(year, [])
-            year_to_idx[year].append(cntr)
-            cntr += 1
+#             year_to_idx.setdefault(year, [])
+#             year_to_idx[year].append(cntr)
+#             cntr += 1
 
-        # seperate the datasets
-        year_wise = {}
-        for k, v in year_to_idx.items():
-            arr = []
-            for i in v:
-                arr.append(dfs[i])
-            year_wise[k] = arr
+#         # seperate the datasets
+#         year_wise = {}
+#         for k, v in year_to_idx.items():
+#             arr = []
+#             for i in v:
+#                 arr.append(dfs[i])
+#             year_wise[k] = arr
 
-        # create exhaustive jsons
-        logging.info("dumping exhaustive jsons")
-        os.makedirs(args.folder + '/target', exist_ok=False)
-        for year in year_wise:
-            for df in year_wise[year]:
-                wsid = df.columns[5].split("_")[0]
+#         # create exhaustive jsons
+#         logging.info(f"dumping exhaustive jsons ... might take some time. Number of years found: {len(year_wise)}")
+#         os.makedirs(args.folder + '/target', exist_ok=True)
+#         for year in year_wise:
+#             for df in year_wise[year]:
+#                 wsid = df.columns[5].split("_")[0]
                 
-                # since 2019 they started using a new format
-                if year in [2019, 2020]:
-                    df.date = [x.replace("/", "-") for x in df.date.values]
-                    df.hour = [f"{x.split()[0][:2]}:{x.split()[0][2:]}" for x in df.hour.values]
-                df.to_json(f"target/{year}_{wsid}.json", orient = "columns")
+#                 # since 2019 they started using a new format
+#                 if year in [2019, 2020]:
+#                     df.date = [x.replace("/", "-") for x in df.date.values]
+#                     df.hour = [f"{x.split()[0][:2]}:{x.split()[0][2:]}" for x in df.hour.values]
+#                 df.to_json(args.folder + f"/target/{year}_{wsid}.json", orient = "columns")
 
-        # start making master
+#         # start making master
         all_files = glob(args.folder + "/target/*.json")
         logging.info(f"Found: {len(all_files)} files")
 
-        # first part is creating a unfied global index
-        logging.info("creating unified global index")
-        unified_idx = set()
-        for _, fpath in zip(trange(len(all_files)), all_files):
-            with open(fpath, 'r') as f:
-                data = json.load(f)
-                for i in data["date"]:
-                    d, h = data["date"][i], data["hour"][i]
-                    unified_idx.add(f"{d}T{h}")
+#         # first part is creating a unfied global index
+#         logging.info("creating unified global index")
+#         unified_idx = set()
+#         for _, fpath in zip(trange(len(all_files)), all_files):
+#             with open(fpath, 'r') as f:
+#                 data = json.load(f)
+#                 for i in data["date"]:
+#                     d, h = data["date"][i], data["hour"][i]
+#                     unified_idx.add(f"{d}T{h}")
 
-        unified_idx = sorted(list(set(unified_idx)))
-        logging.info(f"idxs: {len(unified_idx)}")
+#         unified_idx = sorted(list(set(unified_idx)))
+#         logging.info(f"idxs: {len(unified_idx)}. top 10: {unified_idx[:10]}")
 
-        os.makedirs(args.folder + '/final', exist_ok=False)
-        with open(args.folder + "final/index.json", "w") as f:
-            f.write(json.dumps({i: x for i, x in enumerate(sorted(unified_idx))}))
-        inv_idx = {x: i for i, x in enumerate(sorted(unified_idx))}
+#         os.makedirs(args.folder + '/final', exist_ok=True)
+#         with open(args.folder + "/final/index.json", "w") as f:
+#             f.write(json.dumps({i: x for i, x in enumerate(unified_idx)}))
+#         del unified_idx
+
+        with open(args.folder + "/final/index.json", "r") as f:
+            unified_idx = json.load(f)
+        inv_idx = {unified_idx[x]: i for i, x in enumerate(unified_idx)}
+        
+        print(list(unified_idx.keys())[:10], list(inv_idx.keys())[:10])
 
         # next we group the data by wsid
         files_by_wsid = {}
         for f in all_files:
-            wsid = f.split("/")[1].split("_")[-1].split(".")[0]
+            wsid = f.split("/")[-1].split("_")[-1].split(".")[0]
             files_by_wsid.setdefault(wsid, [])
             files_by_wsid[wsid].append(f)
         files_by_wsid = {k: sorted(v) for k, v in files_by_wsid.items()}
-
+        
+        logging.info(f"Found: {len(files_by_wsid)} wsids")
+        
         # open each file and get the global indexes for it.
         for _, (wsid, files) in zip(trange(len(files_by_wsid)), files_by_wsid.items()):
             wsid_data = {} # a unified dataset for all global_indexes for this wsid
@@ -255,7 +265,7 @@ if __name__ == "__main__":
                 merged = {gid:d.tolist() for gid, d in zip(global_idx, data)}
                 wsid_data.update(merged)
             
-            with open(f"final/{wsid}.json", "w") as f:
+            with open(args.folder + f"/final/{wsid}.json", "w") as f:
                 f.write(json.dumps(wsid_data))
 
     logging.info("completed, exiting")

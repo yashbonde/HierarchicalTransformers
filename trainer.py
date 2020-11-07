@@ -20,6 +20,7 @@ class Trainer:
 
         self.device = "cpu"
         if torch.cuda.is_available():
+            print("Model is now CUDA!!!!")
             self.device = torch.cuda.current_device()
             self.model = torch.nn.DataParallel(self.model).to(self.device)
 

@@ -5,8 +5,8 @@ import os
 from types import SimpleNamespace
 from argparse import ArgumentParser
 from data import DatasetConfig, WeatherDataset
-from heirarchical_transformers import HeirarchicalTransformer, HeirarchicalTransformerConfig
-from train import Trainer, TrainerConfig
+from model import HeirarchicalTransformer, HeirarchicalTransformerConfig
+from trainer import Trainer, TrainerConfig
 
 # --- arguments
 args = ArgumentParser(description="Heirarchical Transformer for climate modelling")
@@ -14,8 +14,7 @@ args = ArgumentParser(description="Heirarchical Transformer for climate modellin
 # --- paths
 args.add_argument("--save_folder", default = "models", type = str, help = "folder to save all models")
 args.add_argument("--name", type = str, help = "name of this particular model")
-args.add_argument("--hdf_path", default = "/Users/yashbonde/Desktop/AI/vv2/_notebooks/weatherGiga2.hdf5",
-    type = str, help = "path to hdf5 dump file")
+args.add_argument("--hdf_path", default = "/workspace/vv2/notebooks/weatherGiga0.hdf5", type = str, help = "path to hdf5 dump file")
 args.add_argument("--train_index", default = "/Users/yashbonde/Desktop/AI/vv2/_notebooks/test_idx.txt",
     type = str, help = "path to file with training index")
 args.add_argument("--test_index", default = "/Users/yashbonde/Desktop/AI/vv2/_notebooks/test_idx.txt",

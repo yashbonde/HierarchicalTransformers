@@ -11,6 +11,16 @@ We only consider the Local effects for now since there is not much work on this.
 
 ## [Data](old/data.md)
 
+Instructions for downloading:
+```
+python prep_data.py -d
+# move all the downloaded files to args.folder manually, someone can probably write a better method here
+python prep_data.py -x # unzips all the files
+python prep_data.py -c # compiles the exhaustive dataset
+```
+
+After this we get a massive uncompressed dataset, next step is to convert this to an HDF5 dataset. For this read `prepare_hdf5` notebook.
+
 ## Repo Structure
 The repo is super simple there are 6 main files:
 

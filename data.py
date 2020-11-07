@@ -54,6 +54,10 @@ from tabulate import tabulate
 import torch
 from torch.utils.data import Dataset
 
+DEVICE = "cpu"
+if torch.cuda.is_available():
+    DEVICE = torch.cuda.current_device()
+
 # ---- norm methods ---- #
 def log_norm(x, thresh = 4500, eps = 1e-5):
     x[x > thresh] = thresh
@@ -133,7 +137,7 @@ class WeatherDataset(Dataset):
         self._len_hdf = len(self.this_idx)
         self.mode = mode
         
-        self.num_wsid = len(self.edge_mat)
+        self.num_wsid = self.edge_mat.shape[2]
 
     def __len__(self):
         return self._len_hdf - self.config.maxlen
@@ -150,7 +154,7 @@ class WeatherDataset(Dataset):
         long = [wsmeta_ordered[i] for i in range(1, len(wsmeta_ordered), 3)]
 
         # define location matrix
-        self.loc_mat = torch.from_numpy(wsmeta_ordered.reshape(-1, 3).astype(np.float32))
+        self.loc_mat = torch.from_numpy(wsmeta_ordered.reshape(1, 1, -1, 3).astype(np.float32))
 
         # define edge matrix
         edge_mat = np.ones((len(lats), len(lats)), dtype = np.float32)
@@ -161,6 +165,9 @@ class WeatherDataset(Dataset):
                 edge_mat[i, i+j+1] = d2
                 edge_mat[i+j+1, i] = d2
         edge_mat /= np.sqrt(edge_mat + 0.001)
+        
+        N, N = edge_mat.shape
+        edge_mat = edge_mat.reshape(1, 1, N, N)
 
         self.edge_mat = torch.from_numpy(edge_mat.astype(np.float32))
 
@@ -232,21 +239,21 @@ class WeatherDataset(Dataset):
         return {
             "input": torch.from_numpy(
                 np.asarray(dflist).astype(np.float32).reshape(T_S, S, N, F)
-            ),  # [T, N, F]
+            ).to(DEVICE),  # [T, N, F]
 
             "node_mask": torch.from_numpy(
                 np.asarray(msklist).reshape(T_S, S, N)
-            ).long(), # [T_S, S, N]
+            ).long().to(DEVICE), # [T_S, S, N]
 
             "month_ids": torch.from_numpy(
                 np.asarray(months_list).reshape(T_S, S)
-            ).long(),  # [T_S, S]
+            ).long().to(DEVICE),  # [T_S, S]
             "day_ids": torch.from_numpy(
                 np.asarray(days_list).reshape(T_S, S)
-            ).long(),  # [T_S, S]
+            ).long().to(DEVICE),  # [T_S, S]
             "hour_ids": torch.from_numpy(
                 np.asarray(hours_list).reshape(T_S, S)
-            ).long(),  # [T_S, S]
+            ).long().to(DEVICE),  # [T_S, S]
         }
 
 class DatasetConfig:
